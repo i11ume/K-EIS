@@ -1,86 +1,5 @@
-#include <future>
-
 #pragma GCC optimize(3)
-
 #include <bits/stdc++.h>
-
-class ThreadPool {
-public:
-    ThreadPool(size_t);
-
-    template<class F, class... Args>
-    auto enqueue(F &&f, Args &&... args)
-    -> std::future<typename std::result_of<F(Args...)>::type>;
-
-    ~ThreadPool();
-
-private:
-    // need to keep track of threads so we can join them
-    std::vector<std::thread> workers;
-    // the task queue
-    std::queue<std::function<void()>> tasks;
-
-    // synchronization
-    std::mutex queue_mutex;
-    std::condition_variable condition;
-    bool stop;
-};
-
-// the constructor just launches some amount of workers
-inline ThreadPool::ThreadPool(size_t threads) : stop(false) {
-    for (size_t i = 0; i < threads; ++i)
-        workers.emplace_back([this] {
-            for (;;) {
-                std::function<void()> task;
-
-                {
-                    std::unique_lock<std::mutex> lock(this->queue_mutex);
-                    this->condition.wait(
-                            lock, [this] { return this->stop || !this->tasks.empty(); });
-                    if (this->stop && this->tasks.empty())
-                        return;
-                    task = std::move(this->tasks.front());
-                    this->tasks.pop();
-                }
-
-                task();
-            }
-        });
-}
-
-// add new work item to the pool
-template<class F, class... Args>
-auto ThreadPool::enqueue(F &&f, Args &&... args)
--> std::future<typename std::result_of<F(Args...)>::type> {
-    using return_type = typename std::result_of<F(Args...)>::type;
-
-    auto task = std::make_shared<std::packaged_task<return_type()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
-
-    std::future<return_type> res = task->get_future();
-    {
-        std::unique_lock<std::mutex> lock(queue_mutex);
-
-        // don't allow enqueueing after stopping the pool
-        if (stop)
-            throw std::runtime_error("enqueue on stopped ThreadPool");
-
-        tasks.emplace([task]() { (*task)(); });
-    }
-    condition.notify_one();
-    return res;
-}
-
-// the destructor joins all threads
-inline ThreadPool::~ThreadPool() {
-    {
-        std::unique_lock<std::mutex> lock(queue_mutex);
-        stop = true;
-    }
-    condition.notify_all();
-    for (std::thread &worker: workers)
-        worker.join();
-}
 
 using namespace std;
 
@@ -112,17 +31,17 @@ const double pi = acos(-1.0);
 const int N = 2e5 + 10, M = N << 1;
 const ll mod = MOD[0];
 
-
+vector<pair<int, int>> seq;
 map<int, int> CandidatesSize;
 
-int ask(int x, vector<int> &ask_yes, vector<pair<int, int>> &seq) {
+int ask(int x, vector<int> &ask_yes) {
 //    debug(x);
     seq.emplace_back(x, ask_yes[x]);
     if (ask_yes[x])return 1;
     return 0;
 }
 
-void deal_Candidates(int n, vector<vector<int>> &G, vector<pair<int, int>> &seq) {
+void deal_Candidates(int n, vector<vector<int>> &G) {
     unordered_map<int, int> P;
     for (int i = 1; i <= n; i++) {
         P[i] = 1;
@@ -162,7 +81,6 @@ void deal_Candidates(int n, vector<vector<int>> &G, vector<pair<int, int>> &seq)
         CandidatesSize[i + 1] += (int) P.size();
     }
 }
-
 void init_query(int cur, vector<int> &ask_yes, vector<vector<int>> &Graph) {
     ask_yes[cur] = 1;
     for (auto v: Graph[cur]) {
@@ -207,85 +125,84 @@ void spanTree(int x, vector<vector<int>> &G, vector<vector<int>> &st, vector<int
     }
 }
 
-string TMP;
+void
+bfs(int root, vector<int> &dep, vector<int> &l, vector<vector<int>> &edge, int n) {
+    queue<int> q;
+    for (int i = 1; i <= n; i++) dep[i] = n + 5;
+    q.push(root);
+    l[root] = dep[root] = 0;
+    vector<int> du(n + 1, 0);
+    for (int i = 1; i <= n; i++) {
+        for (auto v: edge[i]) {
+            du[v]++;
+        }
+    }
+    while (!q.empty()) {
+        int x = q.front();
+        q.pop();
+        for (int i = 0; i < edge[x].size(); i++) {
+            int y = edge[x][i];
+            du[y]--;
+            l[y] = dep[y] = min(dep[y], dep[x] + 1);
+            if (du[y] == 0) q.push(y);
+        }
+    }
+}
 
-pair<int, int> BinG_DAG(int root, int n, vector<int> &ask_yes, vector<vector<int>> &G, vector<pair<int, int>> &seq) {
+string tmp;
+
+double
+single_calp(int x, int r, vector<bool> &is_can, vector<double> &pyes, vector<double> &pr, vector<vector<int>> &edge,
+            vector<double> &val, vector<int> &l) {
+    if (!is_can[x]) return 0;
+    pyes[x] = pr[x];
+    double sum_r = val[x] * (l[x] - l[r]);
+    for (int i = 0; i < edge[x].size(); i++) {
+        int y = edge[x][i];
+        if (!is_can[y]) continue;
+        sum_r += single_calp(y, r, is_can, pyes, pr, edge, val, l);
+        pyes[x] += pyes[y];
+    }
+    return sum_r;
+}
+
+pair<double, int> BinG_calg(int x, double psum, vector<bool> &is_can, vector<double> &pyes, vector<vector<int>> &edge) {
+    double ma = min(pyes[x], psum - pyes[x]);
+    int id = x;
+    for (int i = 0; i < edge[x].size(); i++) {
+        int y = edge[x][i];
+        if (!is_can[y]) continue;
+        pair<double, int> tmp = BinG_calg(y, psum, is_can, pyes, edge);
+        if (tmp.first > ma) {
+            ma = tmp.first, id = tmp.second;
+        }
+    }
+    return {ma, id};
+}
+
+pair<int, int> single_question_BinG(int root, int n, vector<int> &ask_yes, vector<double> &pyes, vector<vector<int>> &G,
+                                    vector<double> &pr, vector<double> &val, vector<int> &l) {
     int r = root;
-    int sum_node = n;
+    double psum = 1;
+    vector<bool> is_ask(n + 1, false);
     int cnt = 0;
-    vector<bool> is_ask(n + 2, false);
-    vector<bool> is_can(n + 2, true);
-    vector<int> pyes(n + 2);
+    vector<bool> is_can(n + 1, true);
     while (true) {
-        int ma = -1;
-        int id = -1;
-        vector<int> VS;
-        for (int i = 1; i <= n; i++) {
-            if (!is_can[i])continue;
-            pyes[i] = 1;
-            queue<int> q;
-            vector<int> vis(n + 2);
-            vis[i] = 1;
-            q.push(i);
-            while (!q.empty()) {
-                int u = q.front();
-                q.pop();
-                for (auto v: G[u]) {
-                    if (!is_can[v])continue;
-                    if (vis[v])continue;
-                    vis[v] = 1;
-                    q.push(v);
-                    pyes[i]++;
-                }
-            }
-            int cur = min(pyes[i], sum_node - pyes[i]);
-            if (cur > ma) {
-                ma = cur;
-                id = i;
-                VS = vis;
-            }
+        single_calp(r, r, is_can, pyes, pr, G, val, l);
+        int x = BinG_calg(r, psum, is_can, pyes, G).second;
+        if (is_ask[x]) {
+            break;
         }
-        if (id == -1 || is_ask[id])break;
-        is_ask[id] = true;
+        is_ask[x] = true;
         cnt++;
-        if (ask(id, ask_yes, seq)) {
-            r = id, sum_node = pyes[r];
-            for (int i = 1; i <= n; i++) {
-                if (!VS[i]) {
-                    is_can[i] = false;
-                }
-            }
-        } else {
-            sum_node = pyes[r] - pyes[id];
-            for (int i = 1; i <= n; i++) {
-                if (VS[i]) {
-                    is_can[i] = false;
-                }
-            }
-        }
+        if (ask(x, ask_yes)) { r = x, psum = pyes[r]; }
+        else { is_can[x] = false, psum = pyes[r] - pyes[x]; }
     }
     return {r, cnt};
 }
 
-
-struct node {
-    int id;
-    vector<int> targets;
-    vector<int> ans_targets;
-    double qu_cost;
-    int query_cnt;
-    vector<pair<int, int>> seq;
-
-    bool operator<(const node &b) const {
-        return id < b.id;
-    }
-};
-
 void solve() {
-    ThreadPool pool(std::thread::hardware_concurrency() / 2 + 1);
-    std::vector<std::future<node>> future_vector;
-
-    string ss = TMP + ".txt";
+    string ss = tmp + ".txt";
     freopen(ss.c_str(), "r", stdin);
     int n, m;
     cin >> n >> m;
@@ -307,11 +224,17 @@ void solve() {
     }
     //读入目标集，此时已知目标数量为 1
 
-    string query_ss = TMP + "_query.txt";
+    string query_ss = tmp + "_query.txt";
     freopen(query_ss.c_str(), "r", stdin);
+
+    string query_log = "BinG_" + tmp + "_query_log.txt";
+    freopen(query_log.c_str(), "w", stdout);
 
     int TestCase;
     cin >> TestCase;
+    double sum = 0, average_query_cnt = 0;
+    int max_query_cnt = 0, minn_query_cnt = n + 1;
+    double sum_query_time = 0;
     for (int __ = 1; __ <= TestCase; __++) {
         int targetNumber;
         cin >> targetNumber;
@@ -323,70 +246,44 @@ void solve() {
             target.push_back(x);
             vis_target[x] = ask_yes[x] = 1;
         }
+        double qu_st = 1.0 * clock() / CLOCKS_PER_SEC;
         // init_query()  O(n)
         for (auto i: target) {
             init_query(i, ask_yes, revG);
         }
-        auto run = [=]() mutable {
-            vector<pair<int, int>> seq;
-            auto qu_st = std::chrono::high_resolution_clock::now();
-            auto [my_target, query_cnt] = BinG_DAG(rt, n+1, ask_yes, G, seq);
-            vector<int> my_targets;
-            my_targets.push_back(my_target);
-            auto qu_ed = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double> elapsed = qu_ed - qu_st;
-            double qu_cost = elapsed.count();
-            node cur;
-            cur.id = __;
-            cur.query_cnt = query_cnt, cur.qu_cost = qu_cost;
-            sort(target.begin(), target.end()), sort(my_targets.begin(), my_targets.end());
-            cur.ans_targets = target, cur.targets = my_targets;
-            cur.seq = seq;
-            return cur;
-        };
 
-        future_vector.emplace_back(pool.enqueue(run));
-    }
-    vector<node> output_vec;
-    for (auto &&future: future_vector) {
-        node cur = future.get();
-        output_vec.push_back(cur);
-    }
-    sort(output_vec.begin(), output_vec.end());
-
-    string query_log = "BinG_DAG_" + TMP + "_query_log.txt";
-    freopen(query_log.c_str(), "w", stdout);
-
-    double sum = 0;
-    int max_query_cnt = 0, minn_query_cnt = n + 1;
-    double sum_query_time = 0;
-
-    for (auto [id, targets, ans_targets, qu_cost, query_cnt, seq]: output_vec) {
-        cout << "query #" << id << ":" << endl;
-        if (targets != ans_targets) {
-            cout << "targets: ";
-            for (auto i: targets) cout << i << " ";
-            cout << "\n";
-            cout << "ans_targets: ";
-            for (auto i: ans_targets) cout << i << " ";
-            cout << "\n";
-            cout << "Wrong" << endl;
-            exit(0);
+        vector<vector<int>> spanning_tree(n + 2);
+        vector<int> vis_stree(n + 2);
+        vis_stree[rt] = 1;
+        spanTree(rt, G, spanning_tree, vis_stree);
+        vector<int> l(n + 2), dep(n + 2);
+        vector<double> val(n + 2);
+        vector<double> pr(n + 2);
+        vector<double> pyes(n + 2);
+        bfs(rt, dep, l, spanning_tree, n + 1);
+        for (int i = 1; i <= n + 1; i++) {
+            val[i] = 1;
+            pr[i] = 1.0 / (n + 1);
         }
-        cout << "targets: ";
-        for (auto i: targets) cout << i << " ";
-        cout << "\n";
-        cout << "query_cnt: " << query_cnt << "\n";
-        cout << "cur_cost: " << qu_cost << "\n" << endl;
-        sum += query_cnt;
-        max_query_cnt = max(max_query_cnt, query_cnt), minn_query_cnt = min(minn_query_cnt, query_cnt);
+        auto [my_target, query_cnt] = single_question_BinG(rt, n + 1, ask_yes, pyes, spanning_tree, pr, val, l);
+        cout << "query #" << __ << ":" << "\n";
+        double qu_ed = 1.0 * clock() / CLOCKS_PER_SEC;
+        double qu_cost = qu_ed - qu_st;
         sum_query_time += qu_cost;
-        deal_Candidates(n, G, seq);
+        sum += query_cnt;
+        average_query_cnt = sum / __;
+        max_query_cnt = max(max_query_cnt, query_cnt);
+        minn_query_cnt = min(minn_query_cnt, query_cnt);
+        cout << "my_target: " << my_target << "   answer_target: " << target[0] << "\n";
+        cout << "query_cnt: " << query_cnt << "\n"<<"\n";
+        deal_Candidates(n, G);
+        seq.clear();
     }
     cout << "max_query_cnt: " << max_query_cnt << "\n";
     cout << "min_query_cnt: " << minn_query_cnt << "\n";
-    cout << "avg_query_cnt: " << fixed << setprecision(8) << sum / TestCase << "\n";
-    cout << "avg_cost: " << fixed << setprecision(8) << sum_query_time / TestCase << "\n\n";
+    cout << "avg_query_cnt: " << fixed << setprecision(8) << average_query_cnt << "\n";
+    cout << "avg_cost: " << fixed << setprecision(8) << sum_query_time / TestCase << "\n" << endl;
+
     cout << "PotentialTargetSize: \n";
     for (auto [cur_query_cnt, PSize]: CandidatesSize) {
         cout << cur_query_cnt << " " << 1.0 * PSize / TestCase << "\n";
@@ -395,7 +292,7 @@ void solve() {
 
 signed main(int argc, char *argv[]) {
     ios::sync_with_stdio(false), cin.tie(nullptr);
-    TMP = argv[1];
+    tmp = argv[1];
     solve();
     return 0;
 }
