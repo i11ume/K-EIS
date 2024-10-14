@@ -14,7 +14,7 @@ public:
 
     template<class F, class... Args>
     auto enqueue(F &&f, Args &&... args)
-    -> std::future<typename std::result_of<F(Args...)>::type>;
+        -> std::future<typename std::result_of<F(Args...)>::type>;
 
     ~ThreadPool();
 
@@ -22,7 +22,7 @@ private:
     // need to keep track of threads so we can join them
     std::vector<std::thread> workers;
     // the task queue
-    std::queue<std::function<void()>> tasks;
+    std::queue<std::function<void()> > tasks;
 
     // synchronization
     std::mutex queue_mutex;
@@ -35,12 +35,10 @@ inline ThreadPool::ThreadPool(size_t threads) : stop(false) {
     for (size_t i = 0; i < threads; ++i)
         workers.emplace_back([this] {
             for (;;) {
-                std::function<void()> task;
-
-                {
+                std::function<void()> task; {
                     std::unique_lock<std::mutex> lock(this->queue_mutex);
                     this->condition.wait(
-                            lock, [this] { return this->stop || !this->tasks.empty(); });
+                        lock, [this] { return this->stop || !this->tasks.empty(); });
                     if (this->stop && this->tasks.empty())
                         return;
                     task = std::move(this->tasks.front());
@@ -55,14 +53,13 @@ inline ThreadPool::ThreadPool(size_t threads) : stop(false) {
 // add new work item to the pool
 template<class F, class... Args>
 auto ThreadPool::enqueue(F &&f, Args &&... args)
--> std::future<typename std::result_of<F(Args...)>::type> {
+    -> std::future<typename std::result_of<F(Args...)>::type> {
     using return_type = typename std::result_of<F(Args...)>::type;
 
-    auto task = std::make_shared<std::packaged_task<return_type()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+    auto task = std::make_shared<std::packaged_task<return_type()> >(
+        std::bind(std::forward<F>(f), std::forward<Args>(args)...));
 
-    std::future<return_type> res = task->get_future();
-    {
+    std::future<return_type> res = task->get_future(); {
         std::unique_lock<std::mutex> lock(queue_mutex);
 
         // don't allow enqueueing after stopping the pool
@@ -76,8 +73,7 @@ auto ThreadPool::enqueue(F &&f, Args &&... args)
 }
 
 // the destructor joins all threads
-inline ThreadPool::~ThreadPool() {
-    {
+inline ThreadPool::~ThreadPool() { {
         std::unique_lock<std::mutex> lock(queue_mutex);
         stop = true;
     }
@@ -91,29 +87,15 @@ using namespace std;
 typedef long long ll;
 typedef unsigned long long ull;
 
-#define debug(x...)       \
-  do {                    \
-    cout << #x << " -> "; \
-    err(x);               \
-  } while (0)
-
-void err() {
-    cout << endl;
-}
-
-template<class T, class... Ts>
-void err(const T &arg, const Ts &... args) {
-    cout << arg << ' ';
-    err(args...);
-}
-
-int ask(int x, vector<int> &ask_yes) {
+int ask(int x, vector<int> &ask_yes, vector<std::chrono::time_point<std::chrono::high_resolution_clock> > &timestamp) {
+    auto qu_st = std::chrono::high_resolution_clock::now();
+    timestamp.push_back(qu_st);
     if (ask_yes[x])
         return 1;
     return 0;
 }
 
-void init_query(int cur, vector<int> &ask_yes, vector<vector<int>> &Graph) {
+void init_query(int cur, vector<int> &ask_yes, vector<vector<int> > &Graph) {
     ask_yes[cur] = 1;
     for (auto v: Graph[cur]) {
         if (!ask_yes[v]) {
@@ -123,19 +105,19 @@ void init_query(int cur, vector<int> &ask_yes, vector<vector<int>> &Graph) {
 }
 
 void calc_yes(vector<int> &col,
-              vector<vector<int>> &G,
-              vector<vector<int>> &revG,
+              vector<vector<int> > &G,
+              vector<vector<int> > &revG,
               int n,
               int x,
               vector<int> &U,
               gp_hash_table<int, bool> &P,
               vector<int> &top,
-              vector<vector<bool>> &GReach,
-              vector<vector<bool>> &revGReach) {
+              vector<unordered_set<int> > &GReach,
+              vector<unordered_set<int> > &revGReach) {
     // P \gets ( P \cap des(x) )  O(n)
     vector<int> erase_seq;
     for (auto [i, val]: P) {
-        if (!GReach[x][i]) {
+        if (GReach[x].find(i) == GReach[x].end()) {
             erase_seq.push_back(i);
         }
     }
@@ -150,7 +132,7 @@ void calc_yes(vector<int> &col,
     {
         int flag = 0;
         for (auto [i, val]: P) {
-            if (!GReach[minn.second][i]) {
+            if (GReach[minn.second].find(i) == GReach[minn.second].end()) {
                 flag = 1;
                 break;
             }
@@ -159,13 +141,12 @@ void calc_yes(vector<int> &col,
             x = minn.second;
         }
     }
-
     // All the vertices which can reach x -> Yes O(n)
     col[x] = 1;
     gp_hash_table<int, bool> mp;
     mp[x] = true;
     for (auto v: U) {
-        if (revGReach[x][v]) {
+        if (revGReach[x].find(v) != revGReach[x].end()) {
             col[v] = 1;
             mp[v] = true;
         }
@@ -215,19 +196,19 @@ void calc_yes(vector<int> &col,
 }
 
 void calc_no(vector<int> &col,
-             vector<vector<int>> &G,
-             vector<vector<int>> &revG,
+             vector<vector<int> > &G,
+             vector<vector<int> > &revG,
              int n,
              int x,
              vector<int> &U,
              gp_hash_table<int, bool> &P,
              vector<int> &top,
-             vector<vector<bool>> &GReach,
-             vector<vector<bool>> &revGReach) {
+             vector<unordered_set<int> > &GReach,
+             vector<unordered_set<int> > &revGReach) {
     // P <- P \cap (V \setminus des(x))
     vector<int> erase_seq;
     for (auto [i, val]: P) {
-        if (GReach[x][i]) {
+        if (GReach[x].find(i) != GReach[x].end()) {
             erase_seq.push_back(i);
         }
     }
@@ -243,16 +224,17 @@ void calc_no(vector<int> &col,
     {
         int flag = 0;
         for (auto [i, val]: P) {
-            if (!GReach[minn.second][i]) {
+            if (GReach[minn.second].find(i) == GReach[minn.second].end()) {
                 flag = 1;
                 break;
             }
         }
-        if (!flag && col[minn.second] == -1) { // exist -> vertex is Yes.
+        if (!flag && col[minn.second] == -1) {
+            // exist -> vertex is Yes.
             col[minn.second] = 1;
             mp[minn.second] = true;
             for (auto v: U) {
-                if (revGReach[minn.second][v]) {
+                if (revGReach[minn.second].find(v) != revGReach[minn.second].end()) {
                     col[v] = 1;
                     mp[v] = true;
                 }
@@ -303,17 +285,19 @@ void calc_no(vector<int> &col,
 }
 
 map<int, int> CandidatesSize;
+map<int, double> timeGap;
 
 pair<int, int> single_select(int n,
                              vector<int> &col,
                              vector<int> &ask_yes,
-                             vector<vector<int>> &G,
-                             vector<vector<int>> &revG,
+                             vector<vector<int> > &G,
+                             vector<vector<int> > &revG,
                              vector<int> &U,
                              gp_hash_table<int, bool> &P,
                              vector<int> &top,
-                             vector<vector<bool>> &GReach,
-                             vector<vector<bool>> &revGReach) {
+                             vector<unordered_set<int> > &GReach,
+                             vector<unordered_set<int> > &revGReach,
+                             vector<std::chrono::time_point<std::chrono::high_resolution_clock> > &timestamp) {
     int cnt = 0;
     CandidatesSize[cnt] += (int) P.size();
     while (P.size() > 1) {
@@ -339,7 +323,7 @@ pair<int, int> single_select(int n,
                 id = i;
             }
         }
-        int ret = ask(id, ask_yes);
+        int ret = ask(id, ask_yes, timestamp);
         cnt++;
         if (ret) {
             calc_yes(col, G, revG, n, id, U, P, top, GReach, revGReach);
@@ -351,7 +335,7 @@ pair<int, int> single_select(int n,
     return {cnt, P.begin()->first};
 }
 
-void dfs(int x, vector<vector<int>> &G, vector<int> &cnt0, vector<int> &col) {
+void dfs(int x, vector<vector<int> > &G, vector<int> &cnt0, vector<int> &col) {
     cnt0[x] = 1;
     for (auto v: G[x]) {
         if (col[v] != -1)continue;
@@ -365,13 +349,14 @@ void dfs(int x, vector<vector<int>> &G, vector<int> &cnt0, vector<int> &col) {
 pair<int, int> single_select_tree(int n,
                                   vector<int> &col,
                                   vector<int> &ask_yes,
-                                  vector<vector<int>> &G,
-                                  vector<vector<int>> &revG,
+                                  vector<vector<int> > &G,
+                                  vector<vector<int> > &revG,
                                   vector<int> &U,
                                   gp_hash_table<int, bool> &P,
                                   vector<int> &top,
-                                  vector<vector<bool>> &GReach,
-                                  vector<vector<bool>> &revGReach) {
+                                  vector<unordered_set<int> > &GReach,
+                                  vector<unordered_set<int> > &revGReach,
+                                  vector<std::chrono::time_point<std::chrono::high_resolution_clock> > &timestamp) {
     int cnt = 0;
     CandidatesSize[cnt] += (int) P.size();
     vector<int> cnt0(n + 2);
@@ -391,7 +376,7 @@ pair<int, int> single_select_tree(int n,
                 id = i;
             }
         }
-        int ret = ask(id, ask_yes);
+        int ret = ask(id, ask_yes, timestamp);
         cnt++;
         if (ret) {
             gp_hash_table<int, bool> mp;
@@ -399,11 +384,11 @@ pair<int, int> single_select_tree(int n,
             col[id] = true, mp[id] = true, P[id] = true;
             for (auto i: U) {
                 if (i == id) continue;
-                if (GReach[id][i]) {
+                if (GReach[id].find(i) != GReach[id].end()) {
                     P[i] = true;
                 } else {
                     mp[i] = true;
-                    if (GReach[i][id]) {
+                    if (GReach[i].find(id) != GReach[i].end()) {
                         col[i] = 1;
                     } else {
                         col[i] = 0;
@@ -420,7 +405,7 @@ pair<int, int> single_select_tree(int n,
         } else {
             gp_hash_table<int, bool> mp;
             for (auto i: U) {
-                if (GReach[id][i]) {
+                if (GReach[id].find(i) != GReach[id].end()) {
                     col[i] = 0;
                     mp[i] = true;
                     if (P.find(i) != P.end())P.erase(i);
@@ -447,6 +432,7 @@ struct node {
     vector<int> ans_targets;
     double qu_cost;
     int query_cnt;
+    vector<std::chrono::time_point<std::chrono::high_resolution_clock> > timestamp;
 
     bool operator<(const node &b) const {
         return id < b.id;
@@ -455,15 +441,15 @@ struct node {
 
 void solve() {
     ThreadPool pool(std::thread::hardware_concurrency() / 2 + 1);
-    std::vector<std::future<node>> future_vector;
+    std::vector<std::future<node> > future_vector;
 
     string ss = tmp + ".txt";
     freopen(ss.c_str(), "r", stdin);
 
     int n, m;
     cin >> n >> m;
-    vector<vector<int>> G(n + 2);
-    vector<vector<int>> revG(n + 2);
+    vector<vector<int> > G(n + 2);
+    vector<vector<int> > revG(n + 2);
     for (int i = 1, u, v; i <= m; i++) {
         cin >> u >> v;
         G[u].push_back(v);
@@ -478,13 +464,13 @@ void solve() {
     }
 
     // n*m init
-    vector<vector<bool>> GReach(n + 2, vector<bool>(n + 2));
-    vector<vector<bool>> revGReach(n + 2, vector<bool>(n + 2));
+    vector<unordered_set<int> > GReach(n + 2);
+    vector<unordered_set<int> > revGReach(n + 2);
     for (int i = 1; i <= n + 1; i++) {
         queue<int> q;
         vector<int> vis(n + 2, 0);
         q.push(i), vis[i] = 1;
-        GReach[i][i] = true;
+        GReach[i].insert(i);
         while (!q.empty()) {
             int cur = q.front();
             q.pop();
@@ -493,24 +479,8 @@ void solve() {
                     continue;
                 q.push(v);
                 vis[v] = 1;
-                GReach[i][v] = true;
-            }
-        }
-    }
-    for (int i = 1; i <= n + 1; i++) {
-        queue<int> q;
-        vector<int> vis(n + 2, 0);
-        q.push(i), vis[i] = 1;
-        revGReach[i][i] = true;
-        while (!q.empty()) {
-            int cur = q.front();
-            q.pop();
-            for (auto v: revG[cur]) {
-                if (vis[v])
-                    continue;
-                q.push(v);
-                vis[v] = 1;
-                revGReach[i][v] = true;
+                GReach[i].insert(v);
+                revGReach[v].insert(i);
             }
         }
     }
@@ -540,7 +510,7 @@ void solve() {
     freopen(query_ss.c_str(), "r", stdin);
     int TestCase;
     cin >> TestCase;
-
+    cout << "start" << endl;
     for (int __ = 1; __ <= TestCase; __++) {
         int targetNumber;
         cin >> targetNumber;
@@ -566,7 +536,10 @@ void solve() {
             if (n - 1 == m) {
                 auto qu_st = std::chrono::high_resolution_clock::now();
                 // single_select O( turns * ( n*m ) )
-                auto [query_cnt, tar] = single_select_tree(n, col, ask_yes, G, revG, U, P, top, GReach, revGReach);
+                vector<std::chrono::time_point<std::chrono::high_resolution_clock> > timestamp;
+                timestamp.push_back(qu_st);
+                auto [query_cnt, tar] = single_select_tree(n, col, ask_yes, G, revG, U, P, top, GReach, revGReach,
+                                                           timestamp);
                 vector<int> my_targets;
                 for (auto [x, z]: P) {
                     my_targets.push_back(x);
@@ -576,6 +549,7 @@ void solve() {
                 double qu_cost = elapsed.count();
                 node cur;
                 cur.id = __;
+                cur.timestamp = timestamp;
                 cur.query_cnt = query_cnt, cur.qu_cost = qu_cost;
                 sort(target.begin(), target.end()), sort(my_targets.begin(), my_targets.end());
                 cur.ans_targets = target, cur.targets = my_targets;
@@ -583,7 +557,10 @@ void solve() {
             } else {
                 auto qu_st = std::chrono::high_resolution_clock::now();
                 // single_select O( turns * ( n*m ) )
-                auto [query_cnt, tar] = single_select(n, col, ask_yes, G, revG, U, P, top, GReach, revGReach);
+                vector<std::chrono::time_point<std::chrono::high_resolution_clock> > timestamp;
+                timestamp.push_back(qu_st);
+                auto [query_cnt, tar] = single_select(n, col, ask_yes, G, revG, U, P, top, GReach, revGReach,
+                                                      timestamp);
                 vector<int> my_targets;
                 for (auto [x, z]: P) {
                     my_targets.push_back(x);
@@ -593,6 +570,7 @@ void solve() {
                 double qu_cost = elapsed.count();
                 node cur;
                 cur.id = __;
+                cur.timestamp = timestamp;
                 cur.query_cnt = query_cnt, cur.qu_cost = qu_cost;
                 sort(target.begin(), target.end()), sort(my_targets.begin(), my_targets.end());
                 cur.ans_targets = target, cur.targets = my_targets;
@@ -604,17 +582,18 @@ void solve() {
     vector<node> output_vec;
     for (auto &&future: future_vector) {
         node cur = future.get();
+        cout << cur.id << " " << cur.qu_cost << " " << cur.query_cnt << endl;
         output_vec.push_back(cur);
     }
     sort(output_vec.begin(), output_vec.end());
-    string query_log = "Our_" + tmp + "_query_log.txt";
+    string query_log = "init_Ultra_" + tmp + "_query_log.txt";
     freopen(query_log.c_str(), "w", stdout);
 
     double sum = 0;
     int max_query_cnt = 0, minn_query_cnt = n + 1;
     double sum_query_time = 0;
 
-    for (auto [id, targets, ans_targets, qu_cost, query_cnt]: output_vec) {
+    for (auto [id, targets, ans_targets, qu_cost, query_cnt, timestamp]: output_vec) {
         cout << "query #" << id << ":" << endl;
         if (targets != ans_targets) {
             cout << "Wrong" << endl;
@@ -625,6 +604,12 @@ void solve() {
         cout << "\n";
         cout << "query_cnt: " << query_cnt << "\n";
         cout << "cur_cost: " << qu_cost << "\n" << endl;
+        for (int i = 1; i < timestamp.size(); i++) {
+            auto pre = timestamp[i - 1], cur = timestamp[i];
+            std::chrono::duration<double> elapsed = cur - pre;
+            double t = elapsed.count();
+            timeGap[i] += t;
+        }
         sum += query_cnt;
         max_query_cnt = max(max_query_cnt, query_cnt), minn_query_cnt = min(minn_query_cnt, query_cnt);
         sum_query_time += qu_cost;
@@ -637,6 +622,11 @@ void solve() {
     for (auto [cur_query_cnt, PSize]: CandidatesSize) {
         cout << cur_query_cnt << " " << 1.0 * PSize / TestCase << "\n";
     }
+    cout << "\n";
+    cout << "QueryGap:\n";
+    for (auto [cur_query_cnt, timegap]: timeGap) {
+        cout << cur_query_cnt << " " << 1.0 * timegap / TestCase << "\n";
+    }
 }
 
 signed main(int argc, char *argv[]) {
@@ -645,6 +635,7 @@ signed main(int argc, char *argv[]) {
     solve();
     return 0;
 }
+
 /*
  9 9
  1 3
@@ -660,3 +651,4 @@ signed main(int argc, char *argv[]) {
  1
  8
 */
+

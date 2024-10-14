@@ -10,7 +10,7 @@ public:
 
     template<class F, class... Args>
     auto enqueue(F &&f, Args &&... args)
-    -> std::future<typename std::result_of<F(Args...)>::type>;
+        -> std::future<typename std::result_of<F(Args...)>::type>;
 
     ~ThreadPool();
 
@@ -18,7 +18,7 @@ private:
     // need to keep track of threads so we can join them
     std::vector<std::thread> workers;
     // the task queue
-    std::queue<std::function<void()>> tasks;
+    std::queue<std::function<void()> > tasks;
 
     // synchronization
     std::mutex queue_mutex;
@@ -31,12 +31,10 @@ inline ThreadPool::ThreadPool(size_t threads) : stop(false) {
     for (size_t i = 0; i < threads; ++i)
         workers.emplace_back([this] {
             for (;;) {
-                std::function<void()> task;
-
-                {
+                std::function<void()> task; {
                     std::unique_lock<std::mutex> lock(this->queue_mutex);
                     this->condition.wait(
-                            lock, [this] { return this->stop || !this->tasks.empty(); });
+                        lock, [this] { return this->stop || !this->tasks.empty(); });
                     if (this->stop && this->tasks.empty())
                         return;
                     task = std::move(this->tasks.front());
@@ -51,14 +49,13 @@ inline ThreadPool::ThreadPool(size_t threads) : stop(false) {
 // add new work item to the pool
 template<class F, class... Args>
 auto ThreadPool::enqueue(F &&f, Args &&... args)
--> std::future<typename std::result_of<F(Args...)>::type> {
+    -> std::future<typename std::result_of<F(Args...)>::type> {
     using return_type = typename std::result_of<F(Args...)>::type;
 
-    auto task = std::make_shared<std::packaged_task<return_type()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+    auto task = std::make_shared<std::packaged_task<return_type()> >(
+        std::bind(std::forward<F>(f), std::forward<Args>(args)...));
 
-    std::future<return_type> res = task->get_future();
-    {
+    std::future<return_type> res = task->get_future(); {
         std::unique_lock<std::mutex> lock(queue_mutex);
 
         // don't allow enqueueing after stopping the pool
@@ -72,8 +69,7 @@ auto ThreadPool::enqueue(F &&f, Args &&... args)
 }
 
 // the destructor joins all threads
-inline ThreadPool::~ThreadPool() {
-    {
+inline ThreadPool::~ThreadPool() { {
         std::unique_lock<std::mutex> lock(queue_mutex);
         stop = true;
     }
@@ -87,28 +83,30 @@ using namespace std;
 typedef long long ll;
 typedef unsigned long long ull;
 
-#define debug(x...)             \
-    do {                      \
-        cout << #x << " -> ";\
-        err(x);               \
-    } while (0)
+#define debug(...)                                                            \
+do {                                                                         \
+std::cout << #__VA_ARGS__ << " -> ";                                         \
+err(__VA_ARGS__);                                                          \
+} while (0)
 
-void err() {
-    cout << endl;
-}
+void err() { std::cout << std::endl; }
 
 template<class T, class... Ts>
 void err(const T &arg, const Ts &... args) {
-    cout << arg << ' ';
+    std::cout << arg << ' ';
     err(args...);
 }
 
-int ask(int x, vector<int> &ask_yes) {
-    if (ask_yes[x])return 1;
+
+int ask(int x, vector<int> &ask_yes, vector<std::chrono::time_point<std::chrono::high_resolution_clock> > &timestamp) {
+    auto qu_st = std::chrono::high_resolution_clock::now();
+    timestamp.push_back(qu_st);
+    if (ask_yes[x])
+        return 1;
     return 0;
 }
 
-void init_query(int cur, vector<int> &ask_yes, vector<vector<int>> &Graph) {
+void init_query(int cur, vector<int> &ask_yes, vector<vector<int> > &Graph) {
     ask_yes[cur] = 1;
     for (auto v: Graph[cur]) {
         if (!ask_yes[v]) {
@@ -117,99 +115,85 @@ void init_query(int cur, vector<int> &ask_yes, vector<vector<int>> &Graph) {
     }
 }
 
-void
-multi_calc_yes(unordered_map<int, int> &col, vector<vector<int>> &G, vector<vector<int>> &revG, int n, int x,
-               vector<int> &Y, vector<int> &N, vector<int> &U,
-               vector<vector<bool>> &GReach,
-               vector<vector<bool>> &revGReach) {
+std::vector<int> multi_calc_yes(std::vector<int> &col, std::vector<std::vector<int> > &G,
+                                std::vector<std::vector<int> > &revG,
+                                int n, int x,
+                                std::vector<int> &U,
+                                std::vector<unordered_set<int> > &GReach,
+                                std::vector<unordered_set<int> > &revGReach) {
     col[x] = 1;
-    unordered_map<int, bool> mp;
-    mp[x] = true;
+    std::unordered_set<int> mp;
+    mp.insert(x);
+    std::vector<int> removed_nodes;
     for (auto v: U) {
-        if (revGReach[x][v]) {
+        if (revGReach[x].find(v) != revGReach[x].end()) {
             col[v] = 1;
-            mp[v] = true;
+            mp.insert(v);
         }
     }
-    vector<int> tmp;
-    for (auto v: U) {
-        if (!mp.count(v)) {
-            tmp.push_back(v);
-        } else {
-            Y.push_back(v);
+    auto it = std::remove_if(U.begin(), U.end(), [&mp, &removed_nodes](int v) {
+        if (mp.find(v) != mp.end()) {
+            removed_nodes.push_back(v);
+            return true;
         }
-    }
-    U = tmp;
+        return false;
+    });
+    U.erase(it, U.end());
+    return removed_nodes;
 }
 
-void
-multi_calc_no(unordered_map<int, int> &col, vector<vector<int>> &G, vector<vector<int>> &revG, int n, int x,
-              vector<int> &Y,
-              vector<int> &N, vector<int> &U,
-              vector<vector<bool>> &GReach,
-              vector<vector<bool>> &revGReach) {
+std::vector<int> multi_calc_no(std::vector<int> &col, std::vector<std::vector<int> > &G,
+                               std::vector<std::vector<int> > &revG,
+                               int n, int x,
+                               std::vector<int> &U,
+                               std::vector<unordered_set<int> > &GReach,
+                               std::vector<unordered_set<int> > &revGReach) {
     col[x] = 0;
-    unordered_map<int, bool> mp;
-    mp[x] = true;
+    std::unordered_set<int> mp;
+    mp.insert(x);
+    std::vector<int> removed_nodes;
     for (auto v: U) {
-        if (GReach[x][v]) {
+        if (GReach[x].find(v) != GReach[x].end()) {
             col[v] = 0;
-            mp[v] = true;
+            mp.insert(v);
         }
     }
-    vector<int> tmp;
-    for (auto v: U) {
-        if (!mp.count(v)) {
-            tmp.push_back(v);
-        } else {
-            N.push_back(v);
+    auto it = std::remove_if(U.begin(), U.end(), [&mp, &removed_nodes](int v) {
+        if (mp.find(v) != mp.end()) {
+            removed_nodes.push_back(v);
+            return true;
         }
-    }
-    U = tmp;
+        return false;
+    });
+    U.erase(it, U.end());
+    return removed_nodes;
 }
 
 map<int, int> CandidatesSize;
+map<int, double> timeGap;
 
-int multi_select(int n, unordered_map<int, int> &col, vector<int> &ask_yes, vector<vector<int>> &G,
-                 vector<vector<int>> &revG, vector<int> &Y, vector<int> &N, vector<int> &U,
-                 vector<vector<bool>> &GReach,
-                 vector<vector<bool>> &revGReach
+pair<int, vector<int> >
+multi_select(int n, int K, vector<int> &col, vector<int> &ask_yes, vector<vector<int> > &G,
+             vector<vector<int> > &revG, vector<int> &U,
+             vector<unordered_set<int> > &GReach,
+             vector<unordered_set<int> > &revGReach,
+             vector<std::chrono::time_point<std::chrono::high_resolution_clock> > &timestamp
 ) {
     int cnt = 0;
-    CandidatesSize[cnt] += n;
+    vector<int> cnty(n + 2, 0);
+    vector<int> cntn(n + 2, 0);
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= n; j++) {
+            if (GReach[i].find(j) != GReach[i].end()) {
+                cntn[i]++;
+            }
+            if (revGReach[i].find(j) != revGReach[i].end()) {
+                cnty[i]++;
+            }
+        }
+    }
+    vector<int> dif;
     while (!U.empty()) {
-        vector<int> cnt1(n + 2, 0), cnt0(n + 2, 0);
-        ll maxx = 0;
-        int id = 0;
-        for (auto i: U) {
-            unordered_map<int, int> tmp_col;
-            // suppose Yes when ask i
-            tmp_col = col;
-            vector<int> tmp_Y = Y, tmp_N = N, tmp_U = U;
-            multi_calc_yes(tmp_col, G, revG, n, i, tmp_Y, tmp_N, tmp_U, GReach, revGReach);
-            for (auto j: U) {
-                if (tmp_col[j] != col[j]) cnt1[i]++;
-            }
-            // suppose No when ask i
-            tmp_col = col;
-            tmp_Y = Y, tmp_N = N, tmp_U = U;
-            multi_calc_no(tmp_col, G, revG, n, i, tmp_Y, tmp_N, tmp_U, GReach, revGReach);
-            for (auto j: U) {
-                if (tmp_col[j] != col[j]) cnt0[i]++;
-            }
-            ll val = 1ll * cnt1[i] * cnt0[i];
-            if (maxx < val) {
-                maxx = val;
-                id = i;
-            }
-        }
-        int ret = ask(id, ask_yes);
-        cnt++;
-        if (ret) {
-            multi_calc_yes(col, G, revG, n, id, Y, N, U, GReach, revGReach);
-        } else {
-            multi_calc_no(col, G, revG, n, id, Y, N, U, GReach, revGReach);
-        }
         int ptsize = 0;
         for (int i = 1; i <= n; i++) {
             if (col[i] == -1) ptsize++;
@@ -225,8 +209,128 @@ int multi_select(int n, unordered_map<int, int> &col, vector<int> &ask_yes, vect
             }
         }
         CandidatesSize[cnt] += ptsize;
+        ll maxx = 0;
+        int id = 0;
+        for (auto i: U) {
+            if (ll val = cnty[i] * cntn[i]; maxx < val) {
+                maxx = val;
+                id = i;
+            }
+        }
+        int ret = ask(id, ask_yes, timestamp);
+        cnt++;
+        dif.clear();
+        if (ret) {
+            dif = multi_calc_yes(col, G, revG, n, id, U, GReach, revGReach);
+        } else {
+            dif = multi_calc_no(col, G, revG, n, id, U, GReach, revGReach);
+        }
+        for (auto i: dif) {
+            for (auto j: U) {
+                if (revGReach[i].find(j) != revGReach[i].end()) {
+                    cntn[j]--;
+                }
+                if (GReach[i].find(j) != GReach[i].end()) {
+                    cnty[j]--;
+                }
+            }
+        }
     }
-    return cnt;
+    vector<int> ret;
+    for (int i = 1; i <= n; i++) {
+        if (col[i] == 1) {
+            int flag = 0;
+            for (auto j: G[i]) {
+                if (col[j] == 1) {
+                    flag = 1;
+                    break;
+                }
+            }
+            if (!flag) {
+                ret.push_back(i);
+            }
+        }
+    }
+    return {cnt, ret};
+}
+
+void dfs(int x, vector<vector<int> > &G, vector<int> &cnt0, vector<int> &col) {
+    cnt0[x] = 1;
+    for (auto v: G[x]) {
+        if (col[v] != -1)continue;
+        if (!cnt0[v]) {
+            dfs(v, G, cnt0, col);
+        }
+        cnt0[x] += cnt0[v];
+    }
+}
+
+
+pair<int, vector<int> >
+multi_select_tree(int n, int K, vector<int> &col, vector<int> &ask_yes, vector<vector<int> > &G,
+                  vector<vector<int> > &revG, vector<int> &U,
+                  vector<unordered_set<int> > &GReach,
+                  vector<unordered_set<int> > &revGReach,
+                  vector<std::chrono::time_point<std::chrono::high_resolution_clock> > &timestamp
+) {
+    int cnt = 0;
+    vector<int> cnt1(n + 2, 0), cnt0(n + 2, 0);
+    while (!U.empty()) {
+        int ptsize = 0;
+        for (int i = 1; i <= n; i++) {
+            if (col[i] == -1) ptsize++;
+            if (col[i] == 1) {
+                int f = 0;
+                for (auto v: G[i]) {
+                    if (col[v] == 1) {
+                        f = 1;
+                        break;
+                    }
+                }
+                if (!f)ptsize++;
+            }
+        }
+        CandidatesSize[cnt] += ptsize;
+        cnt1.assign(n + 2, 0);
+        cnt0.assign(n + 2, 0);
+        ll maxx = 0;
+        int id = 0;
+        for (auto i: U) {
+            if (!cnt0[i]) {
+                dfs(i, G, cnt0, col);
+            }
+            if (!cnt1[i]) {
+                dfs(i, revG, cnt1, col);
+            }
+            if (ll val = 1ll * cnt0[i] * cnt1[i]; maxx < val) {
+                maxx = val;
+                id = i;
+            }
+        }
+        int ret = ask(id, ask_yes, timestamp);
+        cnt++;
+        if (ret) {
+            multi_calc_yes(col, G, revG, n, id, U, GReach, revGReach);
+        } else {
+            multi_calc_no(col, G, revG, n, id, U, GReach, revGReach);
+        }
+    }
+    vector<int> ret;
+    for (int i = 1; i <= n; i++) {
+        if (col[i] == 1) {
+            int flag = 0;
+            for (auto j: G[i]) {
+                if (col[j] == 1) {
+                    flag = 1;
+                    break;
+                }
+            }
+            if (!flag) {
+                ret.push_back(i);
+            }
+        }
+    }
+    return {cnt, ret};
 }
 
 
@@ -238,22 +342,24 @@ struct node {
     vector<int> ans_targets;
     double qu_cost;
     int query_cnt;
+    vector<std::chrono::time_point<std::chrono::high_resolution_clock> > timestamp;
 
     bool operator<(const node &b) const {
         return id < b.id;
     }
 };
 
+
 void solve() {
     ThreadPool pool(std::thread::hardware_concurrency() / 2 + 1);
-    std::vector<std::future<node>> future_vector;
+    std::vector<std::future<node> > future_vector;
     string ss = tmp + ".txt";
     freopen(ss.c_str(), "r", stdin);
 
     int n, m;
     cin >> n >> m;
-    vector<vector<int>> G(n + 2);
-    vector<vector<int>> revG(n + 2);
+    vector<vector<int> > G(n + 2);
+    vector<vector<int> > revG(n + 2);
     for (int i = 1, u, v; i <= m; i++) {
         cin >> u >> v;
         G[u].push_back(v);
@@ -268,91 +374,76 @@ void solve() {
     }
 
     // n*m init
-    vector<vector<bool>> GReach(n + 2, vector<bool>(n + 2));
-    vector<vector<bool>> revGReach(n + 2, vector<bool>(n + 2));
+    vector<unordered_set<int> > GReach(n + 2);
+    vector<unordered_set<int> > revGReach(n + 2);
     for (int i = 1; i <= n + 1; i++) {
         queue<int> q;
         vector<int> vis(n + 2, 0);
         q.push(i), vis[i] = 1;
+        GReach[i].insert(i);
+        revGReach[i].insert(i);
         while (!q.empty()) {
             int cur = q.front();
             q.pop();
             for (auto v: G[cur]) {
-                if (vis[v])continue;
+                if (vis[v])
+                    continue;
                 q.push(v);
                 vis[v] = 1;
-                GReach[i][v] = true;
-            }
-        }
-    }
-    for (int i = 1; i <= n + 1; i++) {
-        queue<int> q;
-        vector<int> vis(n + 2, 0);
-        q.push(i), vis[i] = 1;
-        while (!q.empty()) {
-            int cur = q.front();
-            q.pop();
-            for (auto v: revG[cur]) {
-                if (vis[v])continue;
-                q.push(v);
-                vis[v] = 1;
-                revGReach[i][v] = true;
+                GReach[i].insert(v);
+                revGReach[v].insert(i);
             }
         }
     }
     //
-    string query_ss = tmp + "_query2.txt";
+    string query_ss = tmp + "2_query2.txt";
     freopen(query_ss.c_str(), "r", stdin);
-
     int TestCase;
     cin >> TestCase;
+    vector<int> target;
+    vector<int> vis_target(n + 2, 0);
+    vector<int> ask_yes(n + 2, 0);
+    vector<int> col(n + 2);
+    vector<int> U;
     for (int __ = 1; __ <= TestCase; __++) {
         int targetNumber;
         cin >> targetNumber;
-        vector<int> target;
-        vector<int> vis_target(n + 2, 0);
-        vector<int> ask_yes(n + 2, 0);
+        target.clear();
+        vis_target.assign(n + 2, 0);
+        ask_yes.assign(n + 2, 0);
         for (int i = 1, x; i <= targetNumber; i++) {
             cin >> x;
             target.push_back(x);
             vis_target[x] = ask_yes[x] = 1;
         }
         sort(target.begin(), target.end());
-        double qu_st = 1.0 * clock() / CLOCKS_PER_SEC;
         // init_query()  O(n)
         for (auto i: target) {
             init_query(i, ask_yes, revG);
         }
         int K = targetNumber;
-        unordered_map<int, int> col;
-        vector<int> Y, N, U;
+        U.clear();
         col[rt] = 1;
-        Y.push_back(rt);
         for (int i = 1; i <= n; i++) U.push_back(i), col[i] = -1;
-
         auto run = [=]() mutable {
             auto qu_st = std::chrono::high_resolution_clock::now();
-            auto query_cnt = multi_select(n, col, ask_yes, G, revG, Y, N, U, GReach, revGReach);
+            vector<std::chrono::time_point<std::chrono::high_resolution_clock> > timestamp;
+            timestamp.push_back(qu_st);
+            int query_cnt;
             vector<int> my_targets;
-            for (int i = 1; i <= n; i++) {
-                if (col[i] == 1) {
-                    int flag = 0;
-                    for (auto j: G[i]) {
-                        if (col[j] == 1) {
-                            flag = 1;
-                            break;
-                        }
-                    }
-                    if (!flag) {
-                        my_targets.push_back(i);
-                    }
-                }
+            if (m == n - 1) {
+                auto ret = multi_select_tree(n, K, col, ask_yes, G, revG, U, GReach, revGReach, timestamp);
+                query_cnt = ret.first, my_targets = ret.second;
+            } else {
+                auto ret = multi_select(n, K, col, ask_yes, G, revG, U, GReach, revGReach, timestamp);
+                query_cnt = ret.first, my_targets = ret.second;
             }
             auto qu_ed = std::chrono::high_resolution_clock::now();
             std::chrono::duration<double> elapsed = qu_ed - qu_st;
             double qu_cost = elapsed.count();
             node cur;
             cur.id = __;
+            cur.timestamp = timestamp;
             cur.query_cnt = query_cnt, cur.qu_cost = qu_cost;
             sort(target.begin(), target.end()), sort(my_targets.begin(), my_targets.end());
             cur.ans_targets = target, cur.targets = my_targets;
@@ -373,7 +464,7 @@ void solve() {
     int max_query_cnt = 0, minn_query_cnt = n + 1;
     double sum_query_time = 0;
 
-    for (auto [id, targets, ans_targets, qu_cost, query_cnt]: output_vec) {
+    for (auto [id, targets, ans_targets, qu_cost, query_cnt, timestamp]: output_vec) {
         cout << "query #" << id << ":" << endl;
         if (targets != ans_targets) {
             cout << "Wrong" << endl;
@@ -387,6 +478,12 @@ void solve() {
         sum += query_cnt;
         max_query_cnt = max(max_query_cnt, query_cnt), minn_query_cnt = min(minn_query_cnt, query_cnt);
         sum_query_time += qu_cost;
+        for (int i = 1; i < timestamp.size(); i++) {
+            auto pre = timestamp[i - 1], cur = timestamp[i];
+            std::chrono::duration<double> elapsed = cur - pre;
+            double t = elapsed.count();
+            timeGap[i] += t;
+        }
     }
     cout << "max_query_cnt: " << max_query_cnt << "\n";
     cout << "min_query_cnt: " << minn_query_cnt << "\n";
@@ -396,6 +493,11 @@ void solve() {
     for (auto [cur_query_cnt, PSize]: CandidatesSize) {
         cout << cur_query_cnt << " " << 1.0 * PSize / TestCase << "\n";
     }
+    cout << "\n";
+    cout << "QueryGap:\n";
+    for (auto [cur_query_cnt, timegap]: timeGap) {
+        cout << cur_query_cnt << " " << 1.0 * timegap / TestCase << "\n";
+    }
 }
 
 signed main(int argc, char *argv[]) {
@@ -404,6 +506,7 @@ signed main(int argc, char *argv[]) {
     solve();
     return 0;
 }
+
 /*
  14 16
  1 2
@@ -426,5 +529,4 @@ signed main(int argc, char *argv[]) {
  1
  9
 */
-
 
